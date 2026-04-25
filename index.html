@@ -17,26 +17,21 @@ header .sub { font-size: 10px; color: #9a8060; font-family: 'Courier New',monosp
 header .theme { font-size: 14px; color: #6a5040; font-style: italic; margin-top: 0.7rem; }
 header .intro { max-width: 400px; margin: 0.9rem auto 0; font-size: 11px; color: #8a7050; line-height: 1.85; font-style: italic; }
 
+#db-status {
+  position: fixed; top: 1rem; right: 1rem; z-index: 200;
+  font-size: 10px; font-family: 'Courier New',monospace;
+  color: #8a7050; letter-spacing: 0.06em;
+  background: rgba(221,214,196,0.88); padding: 5px 10px; border-radius: 2px;
+}
+
 .plot {
-  position: absolute;
-  width: 520px;
-  z-index: 5;
+  position: absolute; width: 520px; z-index: 5;
   transition: opacity 0.7s ease;
 }
 .plot.hidden-plot { opacity: 0; pointer-events: none; }
 
-.plot-canvas-wrap {
-  width: 500px;
-  height: 500px;
-  background: transparent;
-  margin-bottom: 12px;
-}
-.plot-canvas {
-  width: 500px;
-  height: 500px;
-  display: block;
-  background: transparent;
-}
+.plot-canvas-wrap { width: 500px; height: 500px; background: transparent; margin-bottom: 12px; }
+.plot-canvas { width: 500px; height: 500px; display: block; background: transparent; }
 
 .plot-name {
   width: 100%; font-family: 'Courier New',monospace; font-size: 11px;
@@ -93,8 +88,10 @@ footer { position: absolute; bottom: 0; width: 100%; text-align: center; padding
 </style>
 </head>
 <body>
-<div id="garden-container">
 
+<div id="db-status">connecting...</div>
+
+<div id="garden-container">
   <header>
     <div style="font-size:26px;letter-spacing:0.28em;opacity:0.55;margin-bottom:0.9rem">🌿 🌱 🪴 🍃 🌾 🌻</div>
     <h1>Poetry Garden</h1>
@@ -102,9 +99,7 @@ footer { position: absolute; bottom: 0; width: 100%; text-align: center; padding
     <div class="theme">a love letter to daily things</div>
     <p class="intro">enter your name, write your fragment,<br>upload an image — press plant.</p>
   </header>
-
   <div id="plotLayer"></div>
-
   <footer>
     🌷 🌸 🌺 🪷 🌼<br><br>
     thenewgallery.org &nbsp;·&nbsp; my mother is data<br>
@@ -114,19 +109,43 @@ footer { position: absolute; bottom: 0; width: 100%; text-align: center; padding
 
 <button id="reveal-btn" onclick="revealGarden()">🌿 show garden</button>
 
-<script>
-var PLOTS = 20, CANVAS_SIZE = 500;
-var bgImgs = {}, clouds = {};
-var gardenRevealed = false;
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
+import { getFirestore, doc, setDoc, onSnapshot, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-firestore.js";
 
-var allPlants = [
+// ============================================================
+// FIREBASE CONFIG
+// ============================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyB9KB6ZryADUwRcfSIvdJb3Hu_6vXdOTTM",
+  authDomain: "data-poetry-garden.firebaseapp.com",
+  projectId: "data-poetry-garden",
+  storageBucket: "data-poetry-garden.firebasestorage.app",
+  messagingSenderId: "468507821616",
+  appId: "1:468507821616:web:0d50c94df5ecb527774ff5",
+  measurementId: "G-ZCHFKJ4SMV"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const statusEl = document.getElementById('db-status');
+
+// ============================================================
+// GARDEN SETUP
+// ============================================================
+const PLOTS = 20;
+const CANVAS_SIZE = 500;
+const bgImgs = {}, clouds = {};
+let gardenRevealed = false;
+
+const allPlants = [
   '🌱','🌿','🍃','🌾','🪴','🌻','🌸','🌺','🌹','🌷',
   '🪷','🌼','🌵','🍀','🌲','🌳','🎋','🌴','🪨','🌾',
   '🌿','🍃','🌱','🌻','🌸','🌺','🪷','🌼','🍀','🌾',
   '🌲','🌳','🌵','🪴','🌷','🌹','🎋','🌴','🌱','🌿'
 ];
 
-var placeholders = [
+const placeholders = [
   'the last thing I searched for',
   'a love letter to my phone',
   'what I do at 2am',
@@ -149,13 +168,12 @@ var placeholders = [
   'the poem the data already wrote'
 ];
 
-var container = document.getElementById('garden-container');
-
-// dense background plants — covers the whole tall page
-for (var b = 0; b < 220; b++) {
-  var sp = document.createElement('div');
+// background plants
+const container = document.getElementById('garden-container');
+for (let b = 0; b < 220; b++) {
+  const sp = document.createElement('div');
   sp.className = 'bg-plant';
-  var sz = Math.random() * 58 + 12;
+  const sz = Math.random() * 58 + 12;
   sp.style.fontSize = sz + 'px';
   sp.style.left = (Math.random() * 97) + '%';
   sp.style.top = (Math.random() * 97 + 1) + '%';
@@ -165,66 +183,67 @@ for (var b = 0; b < 220; b++) {
   container.appendChild(sp);
 }
 
-// pixel-based placement — 1300 wide, 4800 tall coordinate space
+// scatter plot positions
 function placePlots(n) {
-  var pts = [], minD = 500, W = 1280, H = 4700, attempts = 0;
+  const pts = []; let minD = 500, W = 1280, H = 4700, attempts = 0;
   while (pts.length < n && attempts < 12000) {
-    var x = 40 + Math.random() * (W - 580);
-    var y = 280 + Math.random() * (H - 680);
-    var ok = true;
-    for (var k = 0; k < pts.length; k++) {
-      var dx = x-pts[k].x, dy = y-pts[k].y;
+    const x = 40 + Math.random() * (W - 580);
+    const y = 280 + Math.random() * (H - 680);
+    let ok = true;
+    for (let k = 0; k < pts.length; k++) {
+      const dx = x-pts[k].x, dy = y-pts[k].y;
       if (Math.sqrt(dx*dx+dy*dy) < minD) { ok=false; break; }
     }
-    if (ok) pts.push({x:x,y:y});
+    if (ok) pts.push({x,y});
     attempts++;
   }
   return pts;
 }
 
-var positions = placePlots(PLOTS);
-var plotLayer = document.getElementById('plotLayer');
+const positions = placePlots(PLOTS);
+const plotLayer = document.getElementById('plotLayer');
 
-for (var i = 1; i <= PLOTS; i++) {
-  (function(idx) {
-    var pos = positions[idx-1] || {x: 40+(idx%4)*300, y: 300+Math.floor((idx-1)/4)*600};
-    var rot = (Math.random()*7-3.5).toFixed(2);
-    var pl = allPlants[(idx-1) % 20];
+for (let i = 1; i <= PLOTS; i++) {
+  const idx = i;
+  const pos = positions[idx-1] || {x: 40+(idx%4)*300, y: 300+Math.floor((idx-1)/4)*600};
+  const rot = (Math.random()*7-3.5).toFixed(2);
+  const pl = allPlants[(idx-1) % 20];
 
-    var plot = document.createElement('div');
-    plot.className = 'plot'; plot.id = 'plot-'+idx;
-    plot.style.left = pos.x + 'px';
-    plot.style.top = pos.y + 'px';
-    plot.style.transform = 'rotate('+rot+'deg)';
+  const plot = document.createElement('div');
+  plot.className = 'plot'; plot.id = 'plot-'+idx;
+  plot.style.left = pos.x + 'px';
+  plot.style.top = pos.y + 'px';
+  plot.style.transform = 'rotate('+rot+'deg)';
 
-    plot.innerHTML =
-      '<div class="plot-canvas-wrap">'+
-        '<canvas class="plot-canvas" id="canvas-'+idx+'" width="'+CANVAS_SIZE+'" height="'+CANVAS_SIZE+'"></canvas>'+
+  plot.innerHTML =
+    '<div class="plot-canvas-wrap">'+
+      '<canvas class="plot-canvas" id="canvas-'+idx+'" width="'+CANVAS_SIZE+'" height="'+CANVAS_SIZE+'"></canvas>'+
+    '</div>'+
+    '<input class="plot-name" id="name-'+idx+'" placeholder="your name" type="text">'+
+    '<textarea class="plot-text" id="text-'+idx+'" placeholder="'+placeholders[idx-1]+'" rows="3"></textarea>'+
+    '<div class="plot-actions">'+
+      '<button class="plant-btn" id="btn-'+idx+'" onclick="window.plant('+idx+')">plant '+pl+'</button>'+
+      '<label class="img-label">+ image<input type="file" accept="image/*" style="display:none" onchange="window.loadImg('+idx+',event)"></label>'+
+      '<div class="pace-wrap">'+
+        '<span class="pace-label">pace</span>'+
+        '<input type="range" id="speed-'+idx+'" min="300" max="2000" value="900" step="100">'+
       '</div>'+
-      '<input class="plot-name" id="name-'+idx+'" placeholder="your name" type="text">'+
-      '<textarea class="plot-text" id="text-'+idx+'" placeholder="'+placeholders[idx-1]+'" rows="3"></textarea>'+
-      '<div class="plot-actions">'+
-        '<button class="plant-btn" id="btn-'+idx+'" onclick="plant('+idx+')">plant '+pl+'</button>'+
-        '<label class="img-label">+ image<input type="file" accept="image/*" style="display:none" onchange="loadImg('+idx+',event)"></label>'+
-        '<div class="pace-wrap">'+
-          '<span class="pace-label">pace</span>'+
-          '<input type="range" id="speed-'+idx+'" min="300" max="2000" value="900" step="100">'+
-        '</div>'+
-      '</div>'+
-      '<div class="planted-mark">✦ planted</div>';
+    '</div>'+
+    '<div class="planted-mark">✦ planted</div>';
 
-    plotLayer.appendChild(plot);
-    drawIdle(document.getElementById('canvas-'+idx), pl);
-  })(i);
+  plotLayer.appendChild(plot);
+  drawIdle(document.getElementById('canvas-'+idx), pl);
 }
 
+// ============================================================
+// CANVAS HELPERS
+// ============================================================
 function applyFeather(ctx, W, H) {
-  // feathered circular mask — true transparency at edges
   ctx.globalCompositeOperation = 'destination-in';
-  var cx = W/2, cy = H/2;
-  var innerR = Math.min(W,H) * 0.36;
-  var outerR = Math.min(W,H) * 0.50;
-  var grad = ctx.createRadialGradient(cx, cy, innerR, cx, cy, outerR);
+  const cx = W/2, cy = H/2;
+  const innerR = Math.min(W,H) * 0.36;
+  const outerR = Math.min(W,H) * 0.50;
+  const grad = ctx.createRadialGradient(cx, cy, innerR, cx, cy, outerR);
   grad.addColorStop(0,   'rgba(0,0,0,1)');
   grad.addColorStop(0.5, 'rgba(0,0,0,0.92)');
   grad.addColorStop(0.8, 'rgba(0,0,0,0.5)');
@@ -235,8 +254,8 @@ function applyFeather(ctx, W, H) {
 }
 
 function drawIdle(canvas, emoji) {
-  var ctx = canvas.getContext('2d');
-  var W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
   ctx.clearRect(0, 0, W, H);
   ctx.globalCompositeOperation = 'source-over';
   ctx.fillStyle = '#060810';
@@ -248,37 +267,139 @@ function drawIdle(canvas, emoji) {
   applyFeather(ctx, W, H);
 }
 
-function loadImg(idx, e) {
-  var f = e.target.files[0]; if (!f) return;
-  var r = new FileReader();
+// ============================================================
+// IMAGE COMPRESSION — keeps Firestore docs small
+// ============================================================
+function compressImage(img, callback) {
+  const MAX = 400, Q = 0.65;
+  const scale = Math.min(MAX / img.width, MAX / img.height, 1);
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(img, 0, 0, w, h);
+  callback(c.toDataURL('image/jpeg', Q));
+}
+
+// exposed to inline onchange handlers
+window.loadImg = function(idx, e) {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
   r.onload = function(ev) {
-    var img = new Image();
-    img.onload = function() { bgImgs[idx] = img; };
+    const img = new Image();
+    img.onload = function() {
+      bgImgs[idx] = img;
+      compressImage(img, function(dataUrl) {
+        bgImgs[idx + '_compressed'] = dataUrl;
+      });
+    };
     img.src = ev.target.result;
   };
   r.readAsDataURL(f);
-}
+};
 
-function plant(idx) {
-  var txt = document.getElementById('text-'+idx).value.trim();
+// ============================================================
+// PLANT — animate locally + save to Firestore
+// ============================================================
+window.plant = async function(idx) {
+  const txt  = document.getElementById('text-'+idx).value.trim();
   if (!txt) return;
-  var words = txt.split(/\s+/).filter(function(w){return w.length>0;});
-  var canvas = document.getElementById('canvas-'+idx);
-  var btn = document.getElementById('btn-'+idx);
-  var pace = parseInt(document.getElementById('speed-'+idx).value);
-  var plotEl = document.getElementById('plot-'+idx);
+  const name = document.getElementById('name-'+idx).value.trim() || 'anonymous';
+  const pace = parseInt(document.getElementById('speed-'+idx).value);
+  const words = txt.split(/\s+/).filter(w => w.length > 0);
+  const plotEl = document.getElementById('plot-'+idx);
+  const btn    = document.getElementById('btn-'+idx);
+  const canvas = document.getElementById('canvas-'+idx);
+
+  // animate immediately
   btn.textContent = 'replant'; btn.classList.add('planted');
   plotEl.classList.add('planted');
   if (gardenRevealed) plotEl.classList.remove('hidden-plot');
   if (clouds[idx]) clouds[idx].stop();
   clouds[idx] = new PlotCloud(canvas, words, bgImgs[idx]||null, pace);
+
+  // save to Firestore
+  statusEl.textContent = 'planting...';
+  try {
+    await setDoc(doc(db, 'garden', 'plot_' + idx), {
+      idx,
+      name,
+      text: txt,
+      pace,
+      imageData: bgImgs[idx + '_compressed'] || null,
+      plantedAt: serverTimestamp()
+    });
+    statusEl.textContent = '✦ planted';
+    setTimeout(() => { statusEl.textContent = 'garden live'; }, 2000);
+  } catch(err) {
+    console.error('save error:', err);
+    statusEl.textContent = '⚠ save failed — check Firestore rules';
+  }
+};
+
+// ============================================================
+// RESTORE A PLOT from Firestore document
+// ============================================================
+function restorePlot(data) {
+  const idx = data.idx;
+  if (!idx || idx < 1 || idx > PLOTS) return;
+
+  const nameEl = document.getElementById('name-'+idx);
+  const textEl = document.getElementById('text-'+idx);
+  const btn    = document.getElementById('btn-'+idx);
+  const plotEl = document.getElementById('plot-'+idx);
+  const canvas = document.getElementById('canvas-'+idx);
+  if (!canvas) return;
+
+  if (nameEl) nameEl.value = data.name || '';
+  if (textEl) textEl.value = data.text || '';
+  if (btn)    { btn.textContent = 'replant'; btn.classList.add('planted'); }
+  if (plotEl) {
+    plotEl.classList.add('planted');
+    if (gardenRevealed) plotEl.classList.remove('hidden-plot');
+  }
+
+  const speedEl = document.getElementById('speed-'+idx);
+  if (speedEl && data.pace) speedEl.value = data.pace;
+
+  const words = (data.text || '').split(/\s+/).filter(w => w.length > 0);
+  if (clouds[idx]) clouds[idx].stop();
+
+  if (data.imageData) {
+    const img = new Image();
+    img.onload = function() {
+      bgImgs[idx] = img;
+      clouds[idx] = new PlotCloud(canvas, words, img, data.pace || 900);
+    };
+    img.src = data.imageData;
+  } else {
+    clouds[idx] = new PlotCloud(canvas, words, null, data.pace || 900);
+  }
 }
 
-function revealGarden() {
-  var btn = document.getElementById('reveal-btn');
+// ============================================================
+// REAL-TIME LISTENER — fires on load + whenever anyone plants
+// ============================================================
+onSnapshot(collection(db, 'garden'), (snapshot) => {
+  statusEl.textContent = 'garden live';
+  snapshot.docChanges().forEach((change) => {
+    if (change.type === 'added' || change.type === 'modified') {
+      restorePlot(change.doc.data());
+    }
+  });
+}, (err) => {
+  console.error('Firestore error:', err);
+  statusEl.textContent = '⚠ db error — check Firestore rules';
+});
+
+// ============================================================
+// REVEAL BUTTON
+// ============================================================
+window.revealGarden = function() {
+  const btn = document.getElementById('reveal-btn');
   gardenRevealed = !gardenRevealed;
-  for (var i = 1; i <= PLOTS; i++) {
-    var plotEl = document.getElementById('plot-'+i);
+  for (let i = 1; i <= PLOTS; i++) {
+    const plotEl = document.getElementById('plot-'+i);
     if (gardenRevealed) {
       if (!plotEl.classList.contains('planted')) plotEl.classList.add('hidden-plot');
     } else {
@@ -286,95 +407,94 @@ function revealGarden() {
     }
   }
   btn.textContent = gardenRevealed ? '🌿 show all' : '🌿 show garden';
-}
+};
 
-function PlotCloud(canvas, words, bgImg, pace) {
-  this.canvas = canvas; this.ctx = canvas.getContext('2d');
-  this.words = words; this.bgImg = bgImg; this.pace = pace||900;
-  this.particles = []; this.wordIdx = 0; this.running = true;
-  this.animId = null; this.spawnTimer = null; this.phase = 'appearing';
-  this.startCycle(); this.animate();
-}
+// ============================================================
+// PLOTCLOUD ANIMATION
+// ============================================================
+class PlotCloud {
+  constructor(canvas, words, bgImg, pace) {
+    this.canvas = canvas; this.ctx = canvas.getContext('2d');
+    this.words = words; this.bgImg = bgImg; this.pace = pace || 900;
+    this.particles = []; this.wordIdx = 0; this.running = true;
+    this.animId = null; this.spawnTimer = null; this.phase = 'appearing';
+    this.startCycle(); this.animate();
+  }
 
-PlotCloud.prototype.startCycle = function() {
-  var self = this;
-  self.particles = []; self.wordIdx = 0; self.phase = 'appearing';
-  self.spawnTimer = setInterval(function() {
-    if (!self.running) return;
-    if (self.wordIdx < self.words.length) {
-      self.spawnWord(self.words[self.wordIdx]); self.wordIdx++;
+  startCycle() {
+    this.particles = []; this.wordIdx = 0; this.phase = 'appearing';
+    this.spawnTimer = setInterval(() => {
+      if (!this.running) return;
+      if (this.wordIdx < this.words.length) {
+        this.spawnWord(this.words[this.wordIdx]); this.wordIdx++;
+      } else {
+        clearInterval(this.spawnTimer); this.phase = 'together';
+        setTimeout(() => {
+          if (!this.running) return;
+          this.phase = 'fading';
+          this.particles.forEach(p => p.fading = true);
+          setTimeout(() => { if (this.running) this.startCycle(); }, 2800);
+        }, 2400);
+      }
+    }, this.pace);
+  }
+
+  spawnWord(word) {
+    const W = this.canvas.width, H = this.canvas.height;
+    const cx = W/2, cy = H/2;
+    const angle = Math.random() * Math.PI * 2;
+    const dist = Math.random() * Math.min(W,H) * 0.32;
+    this.particles.push({
+      word, fading: false, alpha: 0,
+      x: cx + Math.cos(angle)*dist,
+      y: cy + Math.sin(angle)*dist,
+      vx: Math.cos(angle) * (Math.random()*0.18+0.03),
+      vy: -(Math.random()*0.25+0.06),
+      size: Math.floor(Math.random()*10+16)
+    });
+  }
+
+  animate() {
+    if (!this.running) return;
+    const ctx = this.ctx, W = this.canvas.width, H = this.canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'source-over';
+
+    if (this.bgImg) {
+      const sc = Math.max(W/this.bgImg.width, H/this.bgImg.height);
+      const iw = this.bgImg.width*sc, ih = this.bgImg.height*sc;
+      ctx.drawImage(this.bgImg, (W-iw)/2, (H-ih)/2, iw, ih);
+      ctx.fillStyle = 'rgba(4,5,10,0.38)'; ctx.fillRect(0,0,W,H);
     } else {
-      clearInterval(self.spawnTimer); self.phase = 'together';
-      setTimeout(function() {
-        if (!self.running) return;
-        self.phase = 'fading';
-        self.particles.forEach(function(p){ p.fading = true; });
-        setTimeout(function(){ if (self.running) self.startCycle(); }, 2800);
-      }, 2400);
+      ctx.fillStyle = '#060810'; ctx.fillRect(0,0,W,H);
     }
-  }, self.pace);
-};
 
-PlotCloud.prototype.spawnWord = function(word) {
-  var W = this.canvas.width, H = this.canvas.height;
-  var cx = W/2, cy = H/2;
-  // distribute within inner circle using polar coords
-  var angle = Math.random() * Math.PI * 2;
-  var dist = Math.random() * Math.min(W,H) * 0.32;
-  this.particles.push({
-    word: word,
-    x: cx + Math.cos(angle)*dist,
-    y: cy + Math.sin(angle)*dist,
-    vx: Math.cos(angle) * (Math.random()*0.18+0.03),
-    vy: -(Math.random()*0.25+0.06),
-    alpha: 0, size: Math.floor(Math.random()*10+16), fading: false
-  });
-};
-
-PlotCloud.prototype.animate = function() {
-  if (!this.running) return;
-  var ctx = this.ctx, W = this.canvas.width, H = this.canvas.height;
-
-  ctx.clearRect(0, 0, W, H);
-  ctx.globalCompositeOperation = 'source-over';
-
-  if (this.bgImg) {
-    var sc = Math.max(W/this.bgImg.width, H/this.bgImg.height);
-    var iw = this.bgImg.width*sc, ih = this.bgImg.height*sc;
-    ctx.drawImage(this.bgImg, (W-iw)/2, (H-ih)/2, iw, ih);
-    ctx.fillStyle = 'rgba(4,5,10,0.38)'; ctx.fillRect(0,0,W,H);
-  } else {
-    ctx.fillStyle = '#060810'; ctx.fillRect(0,0,W,H);
+    const ta = this.phase==='together' ? 250 : 205;
+    const alive = [];
+    for (let p of this.particles) {
+      p.x += p.vx; p.y += p.vy;
+      if (!p.fading) { p.alpha = Math.min(p.alpha+9, ta); }
+      else { p.alpha = Math.max(p.alpha-2.5, 0); }
+      if (p.alpha>0||!p.fading) alive.push(p);
+      ctx.font = p.size+'px Georgia,serif';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = 'rgba(215,225,255,'+((p.alpha*0.1)/255).toFixed(3)+')';
+      ctx.fillText(p.word, p.x-2, p.y-2); ctx.fillText(p.word, p.x+2, p.y+2);
+      ctx.fillStyle = 'rgba(255,255,255,'+(p.alpha/255).toFixed(3)+')';
+      ctx.fillText(p.word, p.x, p.y);
+    }
+    this.particles = alive;
+    applyFeather(ctx, W, H);
+    this.animId = requestAnimationFrame(() => this.animate());
   }
 
-  var ta = this.phase==='together' ? 250 : 205, alive = [];
-  for (var i=0; i<this.particles.length; i++) {
-    var p = this.particles[i];
-    p.x += p.vx; p.y += p.vy;
-    if (!p.fading){ p.alpha = Math.min(p.alpha+9, ta); }
-    else { p.alpha = Math.max(p.alpha-2.5, 0); }
-    if (p.alpha>0||!p.fading) alive.push(p);
-    ctx.font = p.size+'px Georgia,serif';
-    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = 'rgba(215,225,255,'+((p.alpha*0.1)/255).toFixed(3)+')';
-    ctx.fillText(p.word, p.x-2, p.y-2); ctx.fillText(p.word, p.x+2, p.y+2);
-    ctx.fillStyle = 'rgba(255,255,255,'+(p.alpha/255).toFixed(3)+')';
-    ctx.fillText(p.word, p.x, p.y);
+  stop() {
+    this.running = false;
+    if (this.spawnTimer) clearInterval(this.spawnTimer);
+    if (this.animId) cancelAnimationFrame(this.animId);
   }
-  this.particles = alive;
+}
 
-  // feathered circle — applied after everything, creates soft transparent edge
-  applyFeather(ctx, W, H);
-
-  var self = this;
-  this.animId = requestAnimationFrame(function(){ self.animate(); });
-};
-
-PlotCloud.prototype.stop = function() {
-  this.running = false;
-  if (this.spawnTimer) clearInterval(this.spawnTimer);
-  if (this.animId) cancelAnimationFrame(this.animId);
-};
 </script>
 </body>
 </html>
