@@ -315,13 +315,15 @@ window._loadImg = function(idx, e) {
 // ACTIVATE PLOT (shared by plant + restore)
 // ============================================================
 function activatePlot(idx, words, imgEl, pace) {
-  const plotEl = document.getElementById('plot-'+idx);
-  const btn    = document.getElementById('btn-'+idx);
-  const canvas = document.getElementById('canvas-'+idx);
-  const pl     = allPlants[(idx-1) % 20];
+  const plotEl   = document.getElementById('plot-'+idx);
+  const btn      = document.getElementById('btn-'+idx);
+  const canvas   = document.getElementById('canvas-'+idx);
+  const clearBtn = document.getElementById('clear-'+idx);
+  const pl       = allPlants[(idx-1) % 20];
 
   btn.textContent = 'replant'; btn.classList.add('planted');
   plotEl.classList.add('planted');
+  if (clearBtn) clearBtn.style.display = 'block';
   if (gardenRevealed) plotEl.classList.remove('hidden-plot');
 
   if (clouds[idx]) clouds[idx].stop();
